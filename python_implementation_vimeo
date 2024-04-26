@@ -1,0 +1,147 @@
+import os
+import requests
+import xml.etree.ElementTree as ET
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# Constants
+access_token = '{TOKEN}'  # Replace with your actual access token
+folder_to_monitor = '{PATH}'
+
+# Set to track processed file pairs
+processed_pairs = set()
+
+class UploadHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.event_type == 'created':
+            file_path = event.src_path
+            if file_path.endswith('.mp4'):
+                self.process_mp4(file_path)
+            elif file_path.endswith('.xml'):
+                self.process_xml(file_path)
+
+    def process_mp4(self, video_path):
+        xml_path = os.path.splitext(video_path)[0] + '.xml'
+        if os.path.exists(xml_path):
+            pair = (video_path, xml_path)
+            if pair not in processed_pairs:
+                self.process_files(video_path, xml_path)
+                processed_pairs.add(pair)
+
+    def process_xml(self, xml_path):
+        video_path = os.path.splitext(xml_path)[0] + '.mp4'
+        if os.path.exists(video_path):
+            pair = (video_path, xml_path)
+            if pair not in processed_pairs:
+                self.process_files(video_path, xml_path)
+                processed_pairs.add(pair)
+
+    def process_files(self, video_path, xml_path):
+        if (video_path, xml_path) in processed_pairs:
+            return
+        try:
+            metadata = extract_metadata(xml_path)
+            upload_file(video_path, metadata)
+        except Exception as e:
+            print(f"Failed to process files {video_path} and {xml_path}: {e}")
+
+def extract_metadata(xml_path):
+    metadata = {'title': '', 'description': '', 'tags': []}
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        for child in root:
+            if child.tag == 'title':
+                metadata['title'] = child.text
+            elif child.tag == 'description':
+                metadata['description'] = child.text
+            elif child.tag == 'tags':
+                metadata['tags'] = [tag.strip() for tag in child.text.split(',')]
+    except Exception as e:
+        print(f"Error parsing XML metadata for {xml_path}: {e}")
+    return metadata
+
+def upload_file(video_path, metadata):
+    try:
+        filename_without_extension = os.path.splitext(os.path.basename(video_path))[0]
+
+        title = metadata.get('title', filename_without_extension)
+        description = metadata.get('description', '')
+        tags = metadata.get('tags', [])
+
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.vimeo.*+json;version=3.4'
+        }
+        params = {
+            'upload': {
+                'approach': 'tus',
+                'size': os.path.getsize(video_path),
+            },
+            'name': title,
+            'description': description,
+        }
+        response = requests.post('https://api.vimeo.com/me/videos', headers=headers, json=params)
+        video_data = response.json()
+        upload_link = video_data.get('upload', {}).get('upload_link')
+
+        chunk_size = 256 * 1024 * 1024
+
+        with open(video_path, 'rb') as f:
+            headers = {
+                'Tus-Resumable': '1.0.0',
+                'Upload-Offset': '0',
+                'Content-Type': 'application/offset+octet-stream'
+            }
+            while True:
+                data = f.read(chunk_size)
+                if not data:
+                    break
+                response = requests.patch(upload_link, headers=headers, data=data)
+                upload_offset = int(response.headers.get('Upload-Offset', 0))
+                if upload_offset == os.path.getsize(video_path):
+                    print(f"Upload of {video_path} complete!")
+                    break
+
+        response = requests.head(upload_link, headers={'Tus-Resumable': '1.0.0', 'Accept': 'application/vnd.vimeo.*+json;version=3.4'})
+        upload_length = int(response.headers.get('Upload-Length', 0))
+        upload_offset = int(response.headers.get('Upload-Offset', 0))
+        if upload_length == upload_offset:
+            print(f"Upload of {video_path} verified: Video file received completely.")
+        else:
+            print(f"Upload of {video_path} verification failed: Video file upload incomplete.")
+
+        video_id = video_data.get('uri').split('/')[-1]
+        add_tags_to_video(video_id, tags)
+
+    except Exception as e:
+        print(f"Failed to upload {video_path} to Vimeo: {e}")
+
+def add_tags_to_video(video_id, tags):
+    try:
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.vimeo.*+json;version=3.4'
+        }
+        for tag in tags:
+            url = f'https://api.vimeo.com/videos/{video_id}/tags/{tag}'
+            response = requests.put(url, headers=headers)
+            if response.status_code == 200:
+                print(f"Tag '{tag}' added to the video.")
+            else:
+                print(f"Trouble adding '{tag}' to the video. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Failed to add tags to the video: {e}")
+
+if __name__ == "__main__":
+    observer = Observer()
+    observer.schedule(UploadHandler(), folder_to_monitor, recursive=True)
+    observer.start()
+    try:
+        print(f"Watching folder: {folder_to_monitor}")
+        observer.join()
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
