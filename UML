@@ -1,0 +1,35 @@
+@startuml
+
+participant "Script" as Script
+participant "Folder" as Folder
+participant "OVP" as OVP
+
+activate Script
+
+Script -> Folder: Start monitoring folder
+loop Check for new files
+    Folder -> Script: New file detected
+    alt File is MP4 video
+        Script -> Script: Check for corresponding XML file
+        Folder -> Script: XML file found
+        Script -> Script: Extract metadata (title, description, tags)
+
+    else File is XML
+        Script -> Script: Check for corresponding MP4 file
+        Folder -> Script: MP4 file found
+        Script -> Script: Associate metadata (title, description, tags)
+
+    end
+    Script -> Script: Check if file pair has already been processed
+    alt File pair not processed
+        Script -> OVP: Upload video to OVP with metadata
+        OVP --> Script: Upload successful
+        Script -> Script: Add file pair to processed list
+    else File pair already processed
+        Script -> Script: Skip processing
+    end
+end
+
+deactivate Script
+
+@enduml
