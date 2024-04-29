@@ -3,7 +3,7 @@ I want to monitor a local folder for new content. When a new file becomes availa
 
 ![image](https://github.com/josev2046/WatchFolderAutomation/assets/15835851/c228c1f9-8c00-4fdc-b713-2e6c1023c2f0)
 
-**Purpose, Context and Content**
+**Purpose**
 Purpose: A watch folder serves as a designated directory that is monitored by a specific application or process. The primary purpose of a watch folder is to automate tasks based on the contents of that folder, facilitating Automated File Processing, Workflow Automation and Data Ingestion.
 
 **Context**
