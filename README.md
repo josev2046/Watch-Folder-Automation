@@ -8,3 +8,7 @@ Purpose: A watch folder serves as a designated directory that is monitored by a 
 
 **Context**
 In the context of digital content migration, this blueprint serves as a guide for facilitating bulk media and metadata ingests.
+
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15033310.svg)](https://doi.org/10.5281/zenodo.15033310)
+
